@@ -80,6 +80,7 @@
             cursor: pointer;
             transition: transform 0.2s ease, filter 0.5s ease;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            z-index: 10; /* Ensure sloppy joes are above particles */
         }
 
         .sloppy-joe:hover {
@@ -115,9 +116,67 @@
     </audio>
 
     <script>
+        class Particle {
+            constructor(x, y, vx, vy, size, color, lifespan) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx;
+                this.vy = vy;
+                this.size = size;
+                this.lifespan = lifespan;
+                this.age = 0;
+
+                this.element = document.createElement('div');
+                this.element.style.position = 'absolute';
+                this.element.style.width = `${size}px`;
+                this.element.style.height = `${size}px`;
+                this.element.style.backgroundColor = color;
+                this.element.style.borderRadius = '50%';
+                this.element.style.left = `${this.x - size / 2}px`; // Center particle
+                this.element.style.top = `${this.y - size / 2}px`;  // Center particle
+                this.element.style.zIndex = '5'; // Below sloppy joes
+                this.element.style.pointerEvents = 'none';
+
+                document.body.appendChild(this.element);
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.15; // Gravity for particles
+
+                this.age++;
+                const opacity = 1 - (this.age / this.lifespan);
+                this.element.style.opacity = Math.max(0, opacity);
+                
+                // Shrink particle slightly over time for a "dissipating" effect
+                const currentSize = this.size * (1 - (this.age / (this.lifespan * 1.5)));
+                if (currentSize > 0) {
+                    this.element.style.width = `${currentSize}px`;
+                    this.element.style.height = `${currentSize}px`;
+                }
+
+
+                this.element.style.transform = `translate(${this.x - (currentSize > 0 ? currentSize/2 : this.size/2)}px, ${this.y - (currentSize > 0 ? currentSize/2 : this.size/2)}px)`;
+                // Use translate for positioning for potentially smoother animation
+                this.element.style.left = '0px'; 
+                this.element.style.top = '0px';
+
+
+                return this.age >= this.lifespan || this.y > window.innerHeight + this.size; // True if dead
+            }
+
+            remove() {
+                if (this.element.parentElement) {
+                    this.element.parentElement.removeChild(this.element);
+                }
+            }
+        }
+
         class SloppyJoeExperience {
             constructor() {
                 this.sloppyJoes = [];
+                this.particles = []; // For particle effects
                 this.isRunning = false;
                 this.generationCount = 0;
                 this.maxSloppyJoes = 12;
@@ -143,7 +202,6 @@
                         await this.audioContext.resume();
                     }
 
-                    // Start music and setup audio analysis
                     try {
                         if (!this.audioContext) { 
                             this.setupAudioAnalysis(music);
@@ -152,7 +210,6 @@
                         this.musicStartTime = Date.now(); 
                     } catch (e) {
                         console.log('Music autoplay blocked or setup failed:', e);
-                        // Attempt to setup audio context on interaction if it failed before music play
                         if (!this.audioContext) {
                            try {
                                this.setupAudioAnalysis(music);
@@ -167,17 +224,13 @@
             }
 
             setupAudioAnalysis(audioElement) {
-                // Ensure AudioContext is only initialized once
                 if (this.audioContext) return;
-
                 try {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     this.analyser = this.audioContext.createAnalyser();
                     const source = this.audioContext.createMediaElementSource(audioElement);
-                    
                     source.connect(this.analyser);
                     this.analyser.connect(this.audioContext.destination);
-                    
                     this.analyser.fftSize = 256; 
                     const bufferLength = this.analyser.frequencyBinCount; 
                     this.dataArray = new Uint8Array(bufferLength);
@@ -190,27 +243,20 @@
             async startExperience() {
                 this.isRunning = true;
                 document.getElementById('loading').classList.add('hidden');
-                
-                // Generate initial batch of sloppy joes
                 for (let i = 0; i < 5; i++) {
                     await this.generateSloppyJoe();
                 }
-                
-                // Continue generating more periodically
                 setInterval(() => {
                     if (this.sloppyJoes.length < this.maxSloppyJoes) {
                         this.generateSloppyJoe();
                     }
                 }, 1500);
-                
                 this.animate();
             }
 
             getAudioLevel() { 
                 if (!this.analyser || !this.dataArray || !this.audioContext || this.audioContext.state === 'suspended') return 0;
-                
                 this.analyser.getByteFrequencyData(this.dataArray);
-                
                 let sum = 0;
                 for (let i = 0; i < this.dataArray.length; i++) {
                     sum += this.dataArray[i];
@@ -220,12 +266,10 @@
 
             getBassLevel() { 
                 if (!this.analyser || !this.dataArray || !this.audioContext || this.audioContext.state === 'suspended') return 0;
-
                 this.analyser.getByteFrequencyData(this.dataArray); 
-
                 let bassSum = 0;
-                const bassBinCount = 3; 
-                for (let i = 0; i < bassBinCount && i < this.dataArray.length; i++) {
+                const bassBinCount = Math.max(1, Math.floor(this.dataArray.length * 0.1)); // Use lower 10% of frequencies for bass
+                for (let i = 0; i < bassBinCount; i++) {
                     bassSum += this.dataArray[i];
                 }
                 return (bassSum / bassBinCount) / 255; 
@@ -242,15 +286,12 @@
                         "a cartoon sloppy joe sandwich with a happy face",
                         "a realistic sloppy joe with sesame seed bun"
                     ];
-                    
                     const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
-                    
                     const result = await websim.imageGen({
                         prompt: randomPrompt,
                         aspect_ratio: "1:1",
                         transparent: true
                     });
-
                     this.createBouncingSloppyJoe(result.url);
                 } catch (error) {
                     console.error('Failed to generate sloppy joe:', error);
@@ -261,31 +302,20 @@
                 const sloppyJoe = document.createElement('img');
                 sloppyJoe.src = imageUrl;
                 sloppyJoe.className = 'sloppy-joe';
-                
                 const x = Math.random() * (window.innerWidth - 80);
                 const y = Math.random() * (window.innerHeight - 80);
-                
                 sloppyJoe.style.left = x + 'px';
                 sloppyJoe.style.top = y + 'px';
-                
                 const angle = Math.random() * 2 * Math.PI; 
                 const speed = Math.random() * 3 + 2; 
-                
-                const velocity = {
-                    x: Math.cos(angle) * speed,
-                    y: Math.sin(angle) * speed
-                };
-                
+                const velocity = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
                 const rotationSpeed = (Math.random() - 0.5) * 4;
                 let rotation = 0;
                 
                 const sloppyJoeData = {
-                    element: sloppyJoe,
-                    x: x,
-                    y: y,
-                    velocity: velocity,
-                    rotation: rotation,
-                    rotationSpeed: rotationSpeed
+                    element: sloppyJoe, x: x, y: y, velocity: velocity,
+                    rotation: rotation, rotationSpeed: rotationSpeed,
+                    creationTime: Date.now() // For age-based particle effects
                 };
                 
                 this.sloppyJoes.push(sloppyJoeData);
@@ -312,12 +342,22 @@
                 if (music.currentTime >= 45 && !this.rainbowEffectActive) {
                     this.rainbowEffectActive = true;
                 }
-
                 if (this.rainbowEffectActive) {
                     this.rainbowHueAngle = (this.rainbowHueAngle + 1) % 360; 
                 }
+
+                // Update and remove dead particles
+                this.particles = this.particles.filter(particle => {
+                    if (particle.update()) {
+                        particle.remove();
+                        return false;
+                    }
+                    return true;
+                });
                 
                 this.sloppyJoes.forEach(sloppy => {
+                    const vy_before_physics = sloppy.velocity.y; // Store for bounce detection
+
                     sloppy.x += sloppy.velocity.x * beatMultiplier;
                     sloppy.y += sloppy.velocity.y * beatMultiplier;
                     
@@ -326,19 +366,33 @@
                         sloppy.x = Math.max(0, Math.min(window.innerWidth - 80, sloppy.x));
                     }
                     
+                    // Ground collision and bounce
                     if (sloppy.y >= window.innerHeight - 80) {
                         sloppy.y = window.innerHeight - 80; 
                         sloppy.velocity.y *= -0.7; 
-
-                        const bassBoostFactor = 5; 
+                        const bassBoostFactor = 3 + bassLevel * 4; // Make bass boost more impactful
                         sloppy.velocity.y -= bassLevel * bassBoostFactor; 
+
+                        // Ground impact splatter
+                        if (vy_before_physics > 0.1) { // Was falling
+                            const numParticles = 3 + Math.floor(bassLevel * 15 + Math.abs(vy_before_physics * 0.5));
+                            for (let i = 0; i < numParticles; i++) {
+                                const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 0.7); // Upward cone
+                                const speed = 0.5 + Math.random() * 1.5 + Math.abs(vy_before_physics * 0.15) + bassLevel * 1.5;
+                                const pVx = Math.cos(angle) * speed;
+                                const pVy = Math.sin(angle) * speed;
+                                const size = 2 + Math.random() * (2 + audioLevel * 6);
+                                const pColor = `rgba(${140 + Math.floor(Math.random()*65)}, ${40 + Math.floor(Math.random()*60)}, ${10 + Math.floor(Math.random()*40)}, ${0.7 + Math.random()*0.2})`;
+                                const lifespan = 25 + Math.random() * 35;
+                                this.particles.push(new Particle(sloppy.x + 40, sloppy.y + 75, pVx, pVy, size, pColor, lifespan));
+                            }
+                        }
                     } else if (sloppy.y <= 0) { 
                         sloppy.velocity.y *= -0.8; 
                         sloppy.y = 0;
                     }
                     
                     sloppy.rotation += sloppy.rotationSpeed * beatMultiplier;
-                    
                     const beatScale = 1 + (audioLevel * 0.3);
                     sloppy.element.style.left = sloppy.x + 'px';
                     sloppy.element.style.top = sloppy.y + 'px';
@@ -352,12 +406,35 @@
                     sloppy.element.style.transform = transformStyle;
                     
                     if (sloppy.y < window.innerHeight - 80) {
-                         sloppy.velocity.y += 0.1 * beatMultiplier;
+                         sloppy.velocity.y += 0.1 * beatMultiplier; // Gravity
                     }
 
                     sloppy.velocity.x *= 0.999;
                     if (Math.abs(sloppy.velocity.y) > 0.1) { 
                         sloppy.velocity.y *= 0.999;
+                    }
+
+                    // Rhythmic Drips
+                    if (Math.random() < audioLevel * 0.20 + 0.005) { // Increased chance, base chance
+                        const numDrips = 1 + Math.floor(audioLevel * 1.5);
+                        for (let j = 0; j < numDrips; j++) {
+                            const dripVx = (Math.random() - 0.5) * 0.8;
+                            const dripVy = Math.random() * 0.8 + 0.3;
+                            const dripSize = 1.5 + Math.random() * (2 + audioLevel * 4);
+                            
+                            const ageSeconds = (Date.now() - sloppy.creationTime) / 1000;
+                            const ageFactor = Math.min(1, ageSeconds / 45); // Normalize age over 45s
+                            const baseRed = 170 - ageFactor * 40; // Drips get browner (less red)
+                            const baseGreen = 70 - ageFactor * 20;
+                            
+                            const dripColor = `rgba(${Math.floor(baseRed + Math.random()*35)}, ${Math.floor(baseGreen + Math.random()*30)}, ${30 + Math.floor(Math.random()*20)}, ${0.6 + Math.random()*0.3})`;
+                            const dripLifespan = 30 + Math.random() * 40;
+                            this.particles.push(new Particle(
+                                sloppy.x + 20 + Math.random() * 40, // Randomly from bottom-ish area
+                                sloppy.y + 65 + Math.random() * 15,
+                                dripVx, dripVy, dripSize, dripColor, dripLifespan
+                            ));
+                        }
                     }
                 });
                 
