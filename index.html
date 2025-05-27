@@ -136,12 +136,26 @@
                     document.getElementById('startScreen').classList.add('hidden');
                     document.getElementById('loading').classList.remove('hidden');
                     
+                    if (this.audioContext && this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                    }
+
                     // Start music and setup audio analysis
                     try {
+                        if (!this.audioContext) { // Setup audio context only if not already done
+                            this.setupAudioAnalysis(music);
+                        }
                         await music.play();
-                        this.setupAudioAnalysis(music);
                     } catch (e) {
-                        console.log('Music autoplay blocked, will try again on interaction');
+                        console.log('Music autoplay blocked or setup failed:', e);
+                        // Attempt to setup audio context on interaction if it failed before music play
+                        if (!this.audioContext) {
+                           try {
+                               this.setupAudioAnalysis(music);
+                           } catch (setupError) {
+                                console.error('Audio context setup failed on interaction:', setupError);
+                           }
+                        }
                     }
                     
                     this.startExperience();
@@ -149,6 +163,9 @@
             }
 
             setupAudioAnalysis(audioElement) {
+                // Ensure AudioContext is only initialized once
+                if (this.audioContext) return;
+
                 try {
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     this.analyser = this.audioContext.createAnalyser();
@@ -157,11 +174,12 @@
                     source.connect(this.analyser);
                     this.analyser.connect(this.audioContext.destination);
                     
-                    this.analyser.fftSize = 256;
-                    const bufferLength = this.analyser.frequencyBinCount;
+                    this.analyser.fftSize = 256; // Lower FFT size for broader frequency bins, good for general levels
+                    const bufferLength = this.analyser.frequencyBinCount; // Will be 128
                     this.dataArray = new Uint8Array(bufferLength);
                 } catch (e) {
                     console.log('Audio analysis setup failed:', e);
+                    this.audioContext = null; // Reset if setup failed
                 }
             }
 
@@ -174,27 +192,45 @@
                     await this.generateSloppyJoe();
                 }
                 
-                // Continue generating more periodically (faster now!)
+                // Continue generating more periodically
                 setInterval(() => {
                     if (this.sloppyJoes.length < this.maxSloppyJoes) {
                         this.generateSloppyJoe();
                     }
-                }, 1500); // Reduced from 3000 to 1500
+                }, 1500);
                 
                 this.animate();
             }
 
-            getAudioLevel() {
-                if (!this.analyser || !this.dataArray) return 0;
+            getAudioLevel() { // General audio level
+                if (!this.analyser || !this.dataArray || !this.audioContext || this.audioContext.state === 'suspended') return 0;
                 
                 this.analyser.getByteFrequencyData(this.dataArray);
                 
-                // Calculate average volume level
                 let sum = 0;
                 for (let i = 0; i < this.dataArray.length; i++) {
                     sum += this.dataArray[i];
                 }
                 return sum / this.dataArray.length / 255; // Normalize to 0-1
+            }
+
+            getBassLevel() { // Specific bass frequency level
+                if (!this.analyser || !this.dataArray || !this.audioContext || this.audioContext.state === 'suspended') return 0;
+
+                this.analyser.getByteFrequencyData(this.dataArray); // Ensure data is current
+
+                let bassSum = 0;
+                // Lower frequencies are at the start of the dataArray.
+                // For fftSize = 256, frequencyBinCount = 128.
+                // Each bin is approx sampleRate/256 Hz.
+                // e.g., if sampleRate is 44100Hz, each bin is ~172Hz.
+                // We'll take the first 3 bins for bass (0Hz to ~516Hz)
+                const bassBinCount = 3; 
+                for (let i = 0; i < bassBinCount && i < this.dataArray.length; i++) {
+                    bassSum += this.dataArray[i];
+                }
+                // Average of the bass bins, normalized to 0-1
+                return (bassSum / bassBinCount) / 255; 
             }
 
             async generateSloppyJoe() {
@@ -272,7 +308,8 @@
                 if (!this.isRunning) return;
                 
                 const audioLevel = this.getAudioLevel();
-                const beatMultiplier = 1 + (audioLevel * 2); // Scale bounce based on audio
+                const bassLevel = this.getBassLevel(); // Get current bass level
+                const beatMultiplier = 1 + (audioLevel * 2); // Scale bounce based on overall audio
                 
                 this.sloppyJoes.forEach(sloppy => {
                     // Update position
@@ -281,13 +318,23 @@
                     
                     // Bounce off walls
                     if (sloppy.x <= 0 || sloppy.x >= window.innerWidth - 80) {
-                        sloppy.velocity.x *= -0.8;
+                        sloppy.velocity.x *= -0.8; // Dampen horizontal bounce
                         sloppy.x = Math.max(0, Math.min(window.innerWidth - 80, sloppy.x));
                     }
                     
-                    if (sloppy.y <= 0 || sloppy.y >= window.innerHeight - 80) {
-                        sloppy.velocity.y *= -0.8;
-                        sloppy.y = Math.max(0, Math.min(window.innerHeight - 80, sloppy.y));
+                    // Ground collision (bottom of screen)
+                    if (sloppy.y >= window.innerHeight - 80) {
+                        sloppy.y = window.innerHeight - 80; // Pin to ground
+                        sloppy.velocity.y *= -0.7; // Basic dampen and reverse for ground bounce
+
+                        // Bass Kick Effect: Add extra upward velocity based on bass level
+                        const bassBoostFactor = 20; // Adjust for desired "kick" strength
+                        sloppy.velocity.y -= bassLevel * bassBoostFactor; 
+                                            // Subtract because positive y is downwards, negative y is upwards
+
+                    } else if (sloppy.y <= 0) { // Ceiling collision
+                        sloppy.velocity.y *= -0.8; // Dampen ceiling bounce
+                        sloppy.y = 0;
                     }
                     
                     // Update rotation with beat sync
@@ -300,11 +347,16 @@
                     sloppy.element.style.transform = `rotate(${sloppy.rotation}deg) scale(${beatScale})`;
                     
                     // Add some gravity with beat response
-                    sloppy.velocity.y += 0.1 * beatMultiplier;
-                    
+                    // Ensure gravity doesn't overpower upward bass kick immediately
+                    if (sloppy.y < window.innerHeight - 80) {
+                         sloppy.velocity.y += 0.1 * beatMultiplier;
+                    }
+
                     // Add some friction
                     sloppy.velocity.x *= 0.999;
-                    sloppy.velocity.y *= 0.999;
+                    if (Math.abs(sloppy.velocity.y) > 0.1) { // Only apply y-friction if moving vertically
+                        sloppy.velocity.y *= 0.999;
+                    }
                 });
                 
                 requestAnimationFrame(() => this.animate());
