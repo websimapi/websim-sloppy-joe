@@ -186,6 +186,23 @@
                 this.musicStartTime = 0;
                 this.rainbowEffectActive = false;
                 this.rainbowHueAngle = 0;
+
+                // Physics & Behavior Constants
+                this.MAX_BOUNCE_POTENTIAL = 60; // Max potential a slop can accumulate
+                this.POTENTIAL_SCALE_FACTOR = 0.20; // Visual size increase (e.g., 0.2 = 20% bigger at max potential)
+                this.GRAVITY_BASE = 0.15;
+                this.POTENTIAL_GRAVITY_REDUCTION_FACTOR = 0.0020; // How much potential reduces gravity
+                this.MIN_GRAVITY = 0.02;
+                this.IMPACT_POTENTIAL_GAIN_VELOCITY_FACTOR = 0.20; // Gain from impact speed
+                this.IMPACT_POTENTIAL_GAIN_BASS_FACTOR = 1.8;      // Gain from bass level
+                this.RESTITUTION_GROUND = 0.55; // Base bounciness off ground
+                this.BOOST_FROM_POTENTIAL_FACTOR = 0.12; // How much potential adds to bounce height
+                this.BASS_BOOST_GROUND_BASE = 0.8;
+                this.BASS_BOOST_GROUND_POTENTIAL_FACTOR = 0.025;
+                this.AIRBORNE_POTENTIAL_DECAY = 0.9985; // Multiplicative decay per frame in air
+                this.RESTING_POTENTIAL_DECAY = 0.99;  // Multiplicative decay per frame if resting
+                this.WALL_HIT_POTENTIAL_DECAY_FACTOR = 0.95; // Multiplicative decay on wall hit
+                this.CEILING_HIT_POTENTIAL_DECAY_FACTOR = 0.85; // Multiplicative decay on ceiling hit
                 
                 this.init();
             }
@@ -302,20 +319,26 @@
                 const sloppyJoe = document.createElement('img');
                 sloppyJoe.src = imageUrl;
                 sloppyJoe.className = 'sloppy-joe';
+
+                // Start on the ground with a random horizontal position and an initial upward pop
                 const x = Math.random() * (window.innerWidth - 80);
-                const y = Math.random() * (window.innerHeight - 80);
+                const y = window.innerHeight - 80; // Start on the ground
                 sloppyJoe.style.left = x + 'px';
                 sloppyJoe.style.top = y + 'px';
-                const angle = Math.random() * 2 * Math.PI; 
-                const speed = Math.random() * 3 + 2; 
-                const velocity = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+
+                const initialUpwardVelocity = -(Math.random() * 2.5 + 2.0); // Initial pop upwards
+                const initialHorizontalVelocity = (Math.random() - 0.5) * 3;
+                const velocity = { x: initialHorizontalVelocity, y: initialUpwardVelocity };
+                
                 const rotationSpeed = (Math.random() - 0.5) * 4;
                 let rotation = 0;
                 
                 const sloppyJoeData = {
                     element: sloppyJoe, x: x, y: y, velocity: velocity,
                     rotation: rotation, rotationSpeed: rotationSpeed,
-                    creationTime: Date.now() // For age-based particle effects
+                    creationTime: Date.now(),
+                    bouncePotential: 0, // Initialize bounce potential
+                    onGround: true      // Starts on the ground
                 };
                 
                 this.sloppyJoes.push(sloppyJoeData);
@@ -324,9 +347,12 @@
                 sloppyJoe.addEventListener('click', () => {
                     sloppyJoeData.velocity.x += (Math.random() - 0.5) * 10;
                     sloppyJoeData.velocity.y += (Math.random() - 0.5) * 10;
-                    sloppyJoe.style.transform = `scale(1.5) rotate(${rotation}deg)`;
+                    // Keep current rotation and potential scale effect on click interaction
+                    const currentScale = sloppyJoe.style.transform.match(/scale\(([^)]+)\)/);
+                    const baseScaleValue = currentScale ? parseFloat(currentScale[1]) : 1;
+                    sloppyJoe.style.transform = `scale(${baseScaleValue * 1.2}) rotate(${sloppyJoeData.rotation}deg)`;
                     setTimeout(() => {
-                        sloppyJoe.style.transform = `scale(1) rotate(${rotation}deg)`;
+                         sloppyJoe.style.transform = `scale(${baseScaleValue}) rotate(${sloppyJoeData.rotation}deg)`;
                     }, 200);
                 });
             }
@@ -346,7 +372,6 @@
                     this.rainbowHueAngle = (this.rainbowHueAngle + 1) % 360; 
                 }
 
-                // Update and remove dead particles
                 this.particles = this.particles.filter(particle => {
                     if (particle.update()) {
                         particle.remove();
@@ -356,48 +381,85 @@
                 });
                 
                 this.sloppyJoes.forEach(sloppy => {
-                    const vy_before_physics = sloppy.velocity.y; // Store for bounce detection
+                    const vy_before_physics_update = sloppy.velocity.y;
 
+                    // 1. Apply forces (gravity)
+                    if (!sloppy.onGround) {
+                        let currentGravity = this.GRAVITY_BASE;
+                        currentGravity -= sloppy.bouncePotential * this.POTENTIAL_GRAVITY_REDUCTION_FACTOR;
+                        currentGravity = Math.max(this.MIN_GRAVITY, currentGravity);
+                        sloppy.velocity.y += currentGravity * beatMultiplier;
+                    }
+
+                    // 2. Update position
                     sloppy.x += sloppy.velocity.x * beatMultiplier;
                     sloppy.y += sloppy.velocity.y * beatMultiplier;
                     
+                    // 3. Handle collisions and update potential
+                    // X-axis collisions (walls)
                     if (sloppy.x <= 0 || sloppy.x >= window.innerWidth - 80) {
                         sloppy.velocity.x *= -0.8; 
                         sloppy.x = Math.max(0, Math.min(window.innerWidth - 80, sloppy.x));
+                        sloppy.bouncePotential *= this.WALL_HIT_POTENTIAL_DECAY_FACTOR;
                     }
                     
-                    // Ground collision and bounce
-                    if (sloppy.y >= window.innerHeight - 80) {
+                    // Y-axis collisions (ground/ceiling)
+                    if (sloppy.y >= window.innerHeight - 80) { // Ground collision
                         sloppy.y = window.innerHeight - 80; 
-                        sloppy.velocity.y *= -0.7; 
-                        const bassBoostFactor = 3 + bassLevel * 4; // Make bass boost more impactful
-                        sloppy.velocity.y -= bassLevel * bassBoostFactor; 
+                        const impactVelocity = Math.abs(vy_before_physics_update);
+
+                        if (!sloppy.onGround && impactVelocity > 0.1) { // Just landed
+                            sloppy.bouncePotential = Math.min(this.MAX_BOUNCE_POTENTIAL, 
+                                sloppy.bouncePotential + 
+                                impactVelocity * this.IMPACT_POTENTIAL_GAIN_VELOCITY_FACTOR + 
+                                bassLevel * this.IMPACT_POTENTIAL_GAIN_BASS_FACTOR);
+                        }
+                        sloppy.onGround = true;
+                        
+                        sloppy.velocity.y = -impactVelocity * this.RESTITUTION_GROUND; // Apply restitution
+                        sloppy.velocity.y -= sloppy.bouncePotential * this.BOOST_FROM_POTENTIAL_FACTOR; // Add boost from potential
+                        sloppy.velocity.y -= bassLevel * (this.BASS_BOOST_GROUND_BASE + sloppy.bouncePotential * this.BASS_BOOST_GROUND_POTENTIAL_FACTOR); // Add bass boost
 
                         // Ground impact splatter
-                        if (vy_before_physics > 0.1) { // Was falling
-                            const numParticles = 3 + Math.floor(bassLevel * 15 + Math.abs(vy_before_physics * 0.5));
+                        if (impactVelocity > 0.1) { 
+                            const numParticles = 3 + Math.floor(bassLevel * 15 + impactVelocity * 0.6);
                             for (let i = 0; i < numParticles; i++) {
-                                const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 0.7); // Upward cone
-                                const speed = 0.5 + Math.random() * 1.5 + Math.abs(vy_before_physics * 0.15) + bassLevel * 1.5;
+                                const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 0.75); 
+                                const speed = 0.5 + Math.random() * 1.5 + impactVelocity * 0.20 + bassLevel * 1.8;
                                 const pVx = Math.cos(angle) * speed;
                                 const pVy = Math.sin(angle) * speed;
-                                const size = 2 + Math.random() * (2 + audioLevel * 6);
+                                const size = 2 + Math.random() * (2 + audioLevel * 6 + sloppy.bouncePotential * 0.1);
                                 const pColor = `rgba(${140 + Math.floor(Math.random()*65)}, ${40 + Math.floor(Math.random()*60)}, ${10 + Math.floor(Math.random()*40)}, ${0.7 + Math.random()*0.2})`;
                                 const lifespan = 25 + Math.random() * 35;
                                 this.particles.push(new Particle(sloppy.x + 40, sloppy.y + 75, pVx, pVy, size, pColor, lifespan));
                             }
                         }
-                    } else if (sloppy.y <= 0) { 
-                        sloppy.velocity.y *= -0.8; 
+                        // If almost resting on ground, decay potential
+                        if (Math.abs(sloppy.velocity.y) < (0.3 + sloppy.bouncePotential * 0.015) && sloppy.onGround) {
+                             sloppy.bouncePotential *= this.RESTING_POTENTIAL_DECAY;
+                        }
+
+                    } else if (sloppy.y <= 0) { // Ceiling collision
+                        sloppy.velocity.y *= -0.6; 
                         sloppy.y = 0;
+                        sloppy.onGround = false;
+                        sloppy.bouncePotential *= this.CEILING_HIT_POTENTIAL_DECAY_FACTOR;
+                    } else { // Airborne
+                        sloppy.onGround = false;
+                        if (sloppy.bouncePotential > 0) {
+                           sloppy.bouncePotential *= this.AIRBORNE_POTENTIAL_DECAY;
+                        }
                     }
                     
                     sloppy.rotation += sloppy.rotationSpeed * beatMultiplier;
-                    const beatScale = 1 + (audioLevel * 0.3);
+                    
+                    const beatScale = 1 + (audioLevel * 0.2); // Reduced base audio scale slightly
+                    const potentialVisualScale = 1 + (sloppy.bouncePotential / this.MAX_BOUNCE_POTENTIAL) * this.POTENTIAL_SCALE_FACTOR;
+                    
                     sloppy.element.style.left = sloppy.x + 'px';
                     sloppy.element.style.top = sloppy.y + 'px';
                     
-                    let transformStyle = `rotate(${sloppy.rotation}deg) scale(${beatScale})`;
+                    let transformStyle = `rotate(${sloppy.rotation}deg) scale(${beatScale * potentialVisualScale})`;
                     if (this.rainbowEffectActive) {
                         sloppy.element.style.filter = `hue-rotate(${this.rainbowHueAngle}deg) drop-shadow(0 0 5px hsl(${this.rainbowHueAngle}, 100%, 70%))`;
                     } else {
@@ -405,32 +467,30 @@
                     }
                     sloppy.element.style.transform = transformStyle;
                     
-                    if (sloppy.y < window.innerHeight - 80) {
-                         sloppy.velocity.y += 0.1 * beatMultiplier; // Gravity
+                    // Dampen velocities (air resistance like)
+                    sloppy.velocity.x *= 0.998;
+                    if (!sloppy.onGround) { // Only dampen Y if not on ground
+                        sloppy.velocity.y *= 0.998;
                     }
 
-                    sloppy.velocity.x *= 0.999;
-                    if (Math.abs(sloppy.velocity.y) > 0.1) { 
-                        sloppy.velocity.y *= 0.999;
-                    }
 
-                    // Rhythmic Drips
-                    if (Math.random() < audioLevel * 0.20 + 0.005) { // Increased chance, base chance
+                    // Rhythmic Drips (existing logic)
+                    if (Math.random() < audioLevel * 0.20 + 0.005) { 
                         const numDrips = 1 + Math.floor(audioLevel * 1.5);
                         for (let j = 0; j < numDrips; j++) {
                             const dripVx = (Math.random() - 0.5) * 0.8;
                             const dripVy = Math.random() * 0.8 + 0.3;
-                            const dripSize = 1.5 + Math.random() * (2 + audioLevel * 4);
+                            const dripSize = 1.5 + Math.random() * (2 + audioLevel * 4 + sloppy.bouncePotential * 0.08); // Drip size can also be affected by potential
                             
                             const ageSeconds = (Date.now() - sloppy.creationTime) / 1000;
-                            const ageFactor = Math.min(1, ageSeconds / 45); // Normalize age over 45s
-                            const baseRed = 170 - ageFactor * 40; // Drips get browner (less red)
+                            const ageFactor = Math.min(1, ageSeconds / 45); 
+                            const baseRed = 170 - ageFactor * 40; 
                             const baseGreen = 70 - ageFactor * 20;
                             
                             const dripColor = `rgba(${Math.floor(baseRed + Math.random()*35)}, ${Math.floor(baseGreen + Math.random()*30)}, ${30 + Math.floor(Math.random()*20)}, ${0.6 + Math.random()*0.3})`;
                             const dripLifespan = 30 + Math.random() * 40;
                             this.particles.push(new Particle(
-                                sloppy.x + 20 + Math.random() * 40, // Randomly from bottom-ish area
+                                sloppy.x + 20 + Math.random() * 40, 
                                 sloppy.y + 65 + Math.random() * 15,
                                 dripVx, dripVy, dripSize, dripColor, dripLifespan
                             ));
