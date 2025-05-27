@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sloppy Joe Slop Experience</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(45deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3);
+            background-size: 400% 400%;
+            animation: gradientShift 4s ease infinite;
+            overflow: hidden;
+            font-family: 'Comic Sans MS', cursive, sans-serif;
+            height: 100vh;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .start-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            text-align: center;
+            z-index: 1000;
+        }
+
+        .start-button {
+            padding: 20px 40px;
+            font-size: 24px;
+            background: linear-gradient(45deg, #ff6b6b, #feca57);
+            border: none;
+            border-radius: 50px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .start-button:hover {
+            transform: scale(1.1);
+        }
+
+        .title {
+            font-size: 48px;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            animation: bounce 2s ease-in-out infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .sloppy-joe {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .sloppy-joe:hover {
+            transform: scale(1.2);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+    <div class="start-screen" id="startScreen">
+        <h1 class="title">🍔 SLOPPY JOE SLOP 🍔</h1>
+        <p style="font-size: 18px; margin-bottom: 30px;">Get ready for the ultimate sloppy joe experience!</p>
+        <button class="start-button" id="startButton">START THE SLOP</button>
+    </div>
+
+    <div class="loading hidden" id="loading">Generating Sloppy Joes... 🍔</div>
+
+    <audio id="backgroundMusic" loop>
+        <source src="/api - oh oh sloppy joe - Sonauto.ogg" type="audio/ogg">
+    </audio>
+
+    <script>
+        class SloppyJoeExperience {
+            constructor() {
+                this.sloppyJoes = [];
+                this.isRunning = false;
+                this.generationCount = 0;
+                this.maxSloppyJoes = 12;
+                
+                this.init();
+            }
+
+            init() {
+                const startButton = document.getElementById('startButton');
+                const music = document.getElementById('backgroundMusic');
+                
+                startButton.addEventListener('click', async () => {
+                    document.getElementById('startScreen').classList.add('hidden');
+                    document.getElementById('loading').classList.remove('hidden');
+                    
+                    // Start music
+                    try {
+                        await music.play();
+                    } catch (e) {
+                        console.log('Music autoplay blocked, will try again on interaction');
+                    }
+                    
+                    this.startExperience();
+                });
+            }
+
+            async startExperience() {
+                this.isRunning = true;
+                document.getElementById('loading').classList.add('hidden');
+                
+                // Generate initial batch of sloppy joes
+                for (let i = 0; i < 5; i++) {
+                    await this.generateSloppyJoe();
+                }
+                
+                // Continue generating more periodically
+                setInterval(() => {
+                    if (this.sloppyJoes.length < this.maxSloppyJoes) {
+                        this.generateSloppyJoe();
+                    }
+                }, 3000);
+                
+                this.animate();
+            }
+
+            async generateSloppyJoe() {
+                try {
+                    const prompts = [
+                        "a delicious sloppy joe sandwich with meat sauce dripping",
+                        "a messy sloppy joe burger with sauce everywhere",
+                        "a gooey sloppy joe with ground beef and tomato sauce",
+                        "a juicy sloppy joe sandwich with pickles on top",
+                        "a classic sloppy joe with sauce dripping down",
+                        "a cartoon sloppy joe sandwich with a happy face",
+                        "a realistic sloppy joe with sesame seed bun"
+                    ];
+                    
+                    const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+                    
+                    const result = await websim.imageGen({
+                        prompt: randomPrompt,
+                        aspect_ratio: "1:1",
+                        transparent: true
+                    });
+
+                    this.createBouncingSloppyJoe(result.url);
+                } catch (error) {
+                    console.error('Failed to generate sloppy joe:', error);
+                }
+            }
+
+            createBouncingSloppyJoe(imageUrl) {
+                const sloppyJoe = document.createElement('img');
+                sloppyJoe.src = imageUrl;
+                sloppyJoe.className = 'sloppy-joe';
+                
+                // Random starting position
+                const x = Math.random() * (window.innerWidth - 80);
+                const y = Math.random() * (window.innerHeight - 80);
+                
+                sloppyJoe.style.left = x + 'px';
+                sloppyJoe.style.top = y + 'px';
+                
+                // Random velocity
+                const velocity = {
+                    x: (Math.random() - 0.5) * 8,
+                    y: (Math.random() - 0.5) * 8
+                };
+                
+                // Random rotation speed
+                const rotationSpeed = (Math.random() - 0.5) * 4;
+                let rotation = 0;
+                
+                const sloppyJoeData = {
+                    element: sloppyJoe,
+                    x: x,
+                    y: y,
+                    velocity: velocity,
+                    rotation: rotation,
+                    rotationSpeed: rotationSpeed
+                };
+                
+                this.sloppyJoes.push(sloppyJoeData);
+                document.body.appendChild(sloppyJoe);
+                
+                // Click handler for extra bounce
+                sloppyJoe.addEventListener('click', () => {
+                    sloppyJoeData.velocity.x += (Math.random() - 0.5) * 10;
+                    sloppyJoeData.velocity.y += (Math.random() - 0.5) * 10;
+                    sloppyJoe.style.transform = `scale(1.5) rotate(${rotation}deg)`;
+                    setTimeout(() => {
+                        sloppyJoe.style.transform = `scale(1) rotate(${rotation}deg)`;
+                    }, 200);
+                });
+            }
+
+            animate() {
+                if (!this.isRunning) return;
+                
+                this.sloppyJoes.forEach(sloppy => {
+                    // Update position
+                    sloppy.x += sloppy.velocity.x;
+                    sloppy.y += sloppy.velocity.y;
+                    
+                    // Bounce off walls
+                    if (sloppy.x <= 0 || sloppy.x >= window.innerWidth - 80) {
+                        sloppy.velocity.x *= -0.8;
+                        sloppy.x = Math.max(0, Math.min(window.innerWidth - 80, sloppy.x));
+                    }
+                    
+                    if (sloppy.y <= 0 || sloppy.y >= window.innerHeight - 80) {
+                        sloppy.velocity.y *= -0.8;
+                        sloppy.y = Math.max(0, Math.min(window.innerHeight - 80, sloppy.y));
+                    }
+                    
+                    // Update rotation
+                    sloppy.rotation += sloppy.rotationSpeed;
+                    
+                    // Apply transforms
+                    sloppy.element.style.left = sloppy.x + 'px';
+                    sloppy.element.style.top = sloppy.y + 'px';
+                    sloppy.element.style.transform = `rotate(${sloppy.rotation}deg)`;
+                    
+                    // Add some gravity
+                    sloppy.velocity.y += 0.1;
+                    
+                    // Add some friction
+                    sloppy.velocity.x *= 0.999;
+                    sloppy.velocity.y *= 0.999;
+                });
+                
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        // Start the experience when page loads
+        window.addEventListener('load', () => {
+            new SloppyJoeExperience();
+        });
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
