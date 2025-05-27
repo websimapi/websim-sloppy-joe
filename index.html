@@ -103,12 +103,12 @@
 </head>
 <body>
     <div class="start-screen" id="startScreen">
-        <h1 class="title">🍔 SLOPPY JOE SLOP 🍔</h1>
+        <h1 class="title"> SLOPPY JOE SLOP </h1>
         <p style="font-size: 18px; margin-bottom: 30px;">Get ready for the ultimate sloppy joe experience!</p>
         <button class="start-button" id="startButton">START THE SLOP</button>
     </div>
 
-    <div class="loading hidden" id="loading">Generating Sloppy Joes... 🍔</div>
+    <div class="loading hidden" id="loading">Generating Sloppy Joes... </div>
 
     <audio id="backgroundMusic" loop>
         <source src="/api - oh oh sloppy joe - Sonauto.ogg" type="audio/ogg">
@@ -271,10 +271,13 @@
                 sloppyJoe.style.left = x + 'px';
                 sloppyJoe.style.top = y + 'px';
                 
-                // Random velocity
+                // Random initial velocity using angle and speed for more uniform direction
+                const angle = Math.random() * 2 * Math.PI; // Random angle in radians
+                const speed = Math.random() * 3 + 2; // Random speed between 2 and 5 ( (max-min) + min )
+                
                 const velocity = {
-                    x: (Math.random() - 0.5) * 8,
-                    y: (Math.random() - 0.5) * 8
+                    x: Math.cos(angle) * speed,
+                    y: Math.sin(angle) * speed
                 };
                 
                 // Random rotation speed
@@ -309,7 +312,7 @@
                 
                 const audioLevel = this.getAudioLevel();
                 const bassLevel = this.getBassLevel(); // Get current bass level
-                const beatMultiplier = 1 + (audioLevel * 2); // Scale bounce based on overall audio
+                const beatMultiplier = 1 + (audioLevel * 1.5); // Reduced from 2 to 1.5
                 
                 this.sloppyJoes.forEach(sloppy => {
                     // Update position
@@ -328,7 +331,7 @@
                         sloppy.velocity.y *= -0.7; // Basic dampen and reverse for ground bounce
 
                         // Bass Kick Effect: Add extra upward velocity based on bass level
-                        const bassBoostFactor = 20; // Adjust for desired "kick" strength
+                        const bassBoostFactor = 10; // Reduced from 20 to 10
                         sloppy.velocity.y -= bassLevel * bassBoostFactor; 
                                             // Subtract because positive y is downwards, negative y is upwards
 
