@@ -121,6 +121,9 @@
                 this.isRunning = false;
                 this.generationCount = 0;
                 this.maxSloppyJoes = 12;
+                this.audioContext = null;
+                this.analyser = null;
+                this.dataArray = null;
                 
                 this.init();
             }
@@ -133,15 +136,33 @@
                     document.getElementById('startScreen').classList.add('hidden');
                     document.getElementById('loading').classList.remove('hidden');
                     
-                    // Start music
+                    // Start music and setup audio analysis
                     try {
                         await music.play();
+                        this.setupAudioAnalysis(music);
                     } catch (e) {
                         console.log('Music autoplay blocked, will try again on interaction');
                     }
                     
                     this.startExperience();
                 });
+            }
+
+            setupAudioAnalysis(audioElement) {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    const source = this.audioContext.createMediaElementSource(audioElement);
+                    
+                    source.connect(this.analyser);
+                    this.analyser.connect(this.audioContext.destination);
+                    
+                    this.analyser.fftSize = 256;
+                    const bufferLength = this.analyser.frequencyBinCount;
+                    this.dataArray = new Uint8Array(bufferLength);
+                } catch (e) {
+                    console.log('Audio analysis setup failed:', e);
+                }
             }
 
             async startExperience() {
@@ -153,14 +174,27 @@
                     await this.generateSloppyJoe();
                 }
                 
-                // Continue generating more periodically
+                // Continue generating more periodically (faster now!)
                 setInterval(() => {
                     if (this.sloppyJoes.length < this.maxSloppyJoes) {
                         this.generateSloppyJoe();
                     }
-                }, 3000);
+                }, 1500); // Reduced from 3000 to 1500
                 
                 this.animate();
+            }
+
+            getAudioLevel() {
+                if (!this.analyser || !this.dataArray) return 0;
+                
+                this.analyser.getByteFrequencyData(this.dataArray);
+                
+                // Calculate average volume level
+                let sum = 0;
+                for (let i = 0; i < this.dataArray.length; i++) {
+                    sum += this.dataArray[i];
+                }
+                return sum / this.dataArray.length / 255; // Normalize to 0-1
             }
 
             async generateSloppyJoe() {
@@ -237,10 +271,13 @@
             animate() {
                 if (!this.isRunning) return;
                 
+                const audioLevel = this.getAudioLevel();
+                const beatMultiplier = 1 + (audioLevel * 2); // Scale bounce based on audio
+                
                 this.sloppyJoes.forEach(sloppy => {
                     // Update position
-                    sloppy.x += sloppy.velocity.x;
-                    sloppy.y += sloppy.velocity.y;
+                    sloppy.x += sloppy.velocity.x * beatMultiplier;
+                    sloppy.y += sloppy.velocity.y * beatMultiplier;
                     
                     // Bounce off walls
                     if (sloppy.x <= 0 || sloppy.x >= window.innerWidth - 80) {
@@ -253,16 +290,17 @@
                         sloppy.y = Math.max(0, Math.min(window.innerHeight - 80, sloppy.y));
                     }
                     
-                    // Update rotation
-                    sloppy.rotation += sloppy.rotationSpeed;
+                    // Update rotation with beat sync
+                    sloppy.rotation += sloppy.rotationSpeed * beatMultiplier;
                     
-                    // Apply transforms
+                    // Apply transforms with beat-responsive scaling
+                    const beatScale = 1 + (audioLevel * 0.3);
                     sloppy.element.style.left = sloppy.x + 'px';
                     sloppy.element.style.top = sloppy.y + 'px';
-                    sloppy.element.style.transform = `rotate(${sloppy.rotation}deg)`;
+                    sloppy.element.style.transform = `rotate(${sloppy.rotation}deg) scale(${beatScale})`;
                     
-                    // Add some gravity
-                    sloppy.velocity.y += 0.1;
+                    // Add some gravity with beat response
+                    sloppy.velocity.y += 0.1 * beatMultiplier;
                     
                     // Add some friction
                     sloppy.velocity.x *= 0.999;
@@ -281,4 +319,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
